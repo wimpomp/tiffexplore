@@ -33,11 +33,13 @@ class UiMainWindow(object):
         self.middlecolumn = QtWidgets.QVBoxLayout(self.middlecolumnWidget)
         self.middlecolumn.setContentsMargins(0, 0, 0, 0)
         self.properties = QtWidgets.QTextEdit(self.centralwidget)
+        self.properties.setReadOnly(True)
         self.middlecolumn.addWidget(self.properties)
         self.rightcolumnWidget = QtWidgets.QWidget()
         self.rightcolumn = QtWidgets.QVBoxLayout(self.rightcolumnWidget)
         self.rightcolumn.setContentsMargins(0, 0, 0, 0)
         self.binary = QtWidgets.QTextEdit(self.rightcolumnWidget)
+        self.binary.setReadOnly(True)
         self.rightcolumn.addWidget(self.binary)
         self.image = QtWidgets.QLabel(self.rightcolumnWidget)
         self.image.setMinimumWidth(200)
@@ -165,24 +167,27 @@ class Bar(PaintBox):
         text.append('')
         text.append(f'Adresses: {addr[0]} - {sum(addr)}')
         text.append(f'Length: {addr[1]}')
-        text.append('')
         if key[0].lower() == 'header':
-            text.append(f'File size: {len(self.tiff)}')
+            text.append(f'\nFile size: {len(self.tiff)}')
             text.append(f'Byte order: {self.tiff.byteorder}')
             text.append(f'Big tiff: {self.tiff.bigtiff}')
             text.append(f'Tag size: {self.tiff.tagsize}')
             text.append(f'Tag number format: {self.tiff.tagnoformat}')
             text.append(f'Offset size: {self.tiff.offsetsize}')
             text.append(f'Offset format: {self.tiff.offsetformat}')
-            text.append(f'First ifd offset: {self.tiff.offset}')
+            text.append(f'First ifd offset: {self.tiff.offsets[0]}')
         if key[0].lower() == 'ifd':
-            text.extend([f'{k}: {v}' for k, v in self.tiff.tags[key[1]].items()])
-            if key[1] < self.tiff.nifds-1:
-                text.append(f'Next ifd offset: {self.tiff.addresses[("ifd", key[1] + 1)][0]}')
+            text.append(f'Number of tags: {self.tiff.nTags[key[1]]}\n')
+            text.extend([self.tiff.fmt_tag(k, v)+'\n' for k, v in self.tiff.tags[key[1]].items()])
+            if key[1] < len(self.tiff.offsets) - 1:
+                text.append(f'Next ifd offset: {self.tiff.offsets[key[1] + 1]}')
         if key[0].lower() == 'tagdata':
-            text.append(f'{key[2]}: {self.tiff.tags[key[1]][key[2]]}')
+            text.append('\n' + self.tiff.fmt_tag(key[2], self.tiff.tags[key[1]][key[2]]))
         if key[0].lower() == 'image':
-            self.parent.setImage(key[1], key[2])
+            im = self.tiff.asarray(key[1], key[2])
+            text.append(f'\nStrip size: {im.shape}')
+            text.append(f'Data type: {im.dtype}')
+            self.parent.setImage(im)
         else:
             self.parent.setImage()
         self.parent.properties.setText('\n'.join(text))
@@ -204,9 +209,9 @@ class App(QtWidgets.QMainWindow, UiMainWindow):
 
     def setImage(self, *args):
         if len(args):
-            im = self.tiff.asarray(*args)
+            im = args[0]
             if im.ndim == 3:
-                im = im[0]
+                im = im.transpose(2, 0, 1).reshape((im.shape[0]*im.shape[2], im.shape[1]))
             if im.max() - im.min() > 0:
                 im = (255 * ((im - im.min()) / (im.max() - im.min()))).astype('uint8')
             shape = im.shape
