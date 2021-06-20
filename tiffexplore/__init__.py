@@ -185,8 +185,11 @@ class Bar(PaintBox):
             text.append('\n' + self.tiff.fmt_tag(key[2], self.tiff.tags[key[1]][key[2]]))
         if key[0].lower() == 'image':
             im = self.tiff.asarray(key[1], key[2])
-            text.append(f'\nStrip size: {im.shape}')
-            text.append(f'Data type: {im.dtype}')
+            if im is not None:
+                text.append(f'\nStrip size: {im.shape}')
+                text.append(f'Data type: {im.dtype}')
+                text.append(f'Min, max: {im.min()}, {im.max()}')
+                text.append(f'Mean, std: {im.mean()}, {im.std()}')
             self.parent.setImage(im)
         else:
             self.parent.setImage()

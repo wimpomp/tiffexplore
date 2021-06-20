@@ -8,7 +8,10 @@ class tiff():
     def __init__(self, file):
         self.file = file
         self.fh = open(file, 'rb')
-        self.tiff = tifffile.TiffFile(self.file)
+        try:
+            self.tiff = tifffile.TiffFile(self.file)
+        except Exception:
+            self.tiff = None
         self.tags = []
         self.get_file_len()
         self.addresses = assignments(len(self))
@@ -32,10 +35,17 @@ class tiff():
         text = [f'Code: {code}']
         if code in tifffile.TIFF.TAGS:
             text[-1] += f'; {tifffile.TIFF.TAGS[code]}'
-        text.append(f'data format: {value[0]}; {tifffile.TIFF.DATA_FORMATS.get(value[0])}')
+        text.append(f'data format: {value[0]}')
+        try:
+            text[-1] += f'; {tifffile.TIFF.DATATYPES(value[0]).name.lower()}'
+        except ValueError:
+            pass
         text.append(f'address: {value[1]}')
         text.append(f'count: {value[2]}')
-        text.append(f'value: {value[3]}')
+        if value[0] == 5:
+            text.append(f'value: [{", ".join(["/".join([str(w) for w in v[::-1]]) for v in value[3]])}]')
+        else:
+            text.append(f'value: {value[3]}')
         return '\n'.join(text)
 
     def get_file_len(self):
@@ -46,7 +56,8 @@ class tiff():
         return self.len
 
     def asarray(self, page, segment):
-        return [d for d in zip(self.tiff.pages[page].segments(), range(segment + 1))][-1][0][0].squeeze()
+        if self.tiff is not None:
+            return [d for d in zip(self.tiff.pages[page].segments(), range(segment + 1))][-1][0][0].squeeze()
 
     def read_header(self):
         self.fh.seek(0)

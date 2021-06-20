@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
 setuptools.setup(
     name="tiffexplore",
     packages=["tiffexplore"],
-    version="2021.06.1",
+    version="2021.06.2",
     author="Wim Pomp",
     author_email="wimpomp@gmail.com",
     description="Explore a tiff structure.",
