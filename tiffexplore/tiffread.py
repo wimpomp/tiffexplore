@@ -3,6 +3,7 @@ import tifffile
 import numpy as np
 from traceback import format_exc
 
+ifdcodes = {330: 'sub', 34665: 'exif', 34853: 'gps', 40965: 'inter'}
 
 class tiff():
     def __init__(self, file):
@@ -12,23 +13,38 @@ class tiff():
             self.tiff = tifffile.TiffFile(self.file)
         except Exception:
             self.tiff = None
-        self.tags = []
+        self.tags = {}
         self.get_file_len()
         self.addresses = assignments(len(self))
         self.offsets = []
-        self.nTags = []
+        self.nTags = {}
+        self.tagsread = set()
         try:
             self.offsets = [self.read_header()]
-            i = 0
+            idx = 0
             while 0 < self.offsets[-1] < len(self):
-                self.offsets.append(self.read_ifd(self.offsets[-1], i))
-                i += 1
-            for i, tags in enumerate(self.tags):
-                if 273 in tags and 279 in tags:
-                    for j, a in enumerate(zip(tags[273][-1], tags[279][-1])):
-                        self.addresses[('image', i, j)] = a
+                self.offsets.append(self.read_ifd(self.offsets[-1], idx))
+                idx += 1
+            self.readtags()
         except Exception:
             print(format_exc())
+
+    def readtags(self):
+        while len(set(self.tags.keys()) - self.tagsread):
+            for idx in set(self.tags.keys()) - self.tagsread:
+                tags = self.tags[idx]
+                if idx not in self.tagsread:
+                    if 273 in tags and 279 in tags:
+                        for i, a in enumerate(zip(tags[273][-1], tags[279][-1])):
+                            self.addresses[('image', idx, i)] = a
+                    for code, id in ifdcodes.items():
+                        if code in tags:
+                            if len(tags[code][3]) == 1:
+                                self.offsets.append(self.read_ifd(tags[code][3][0], f'{id}_{idx}'))
+                            else:
+                                for i, offset in enumerate(tags[code][3]):
+                                    self.offsets.append(self.read_ifd(offset, f'{id}_{idx}_{i}'))
+                self.tagsread.add(idx)
 
     @staticmethod
     def fmt_tag(code, value):
@@ -42,8 +58,8 @@ class tiff():
             pass
         text.append(f'address: {value[1]}')
         text.append(f'count: {value[2]}')
-        if value[0] == 5:
-            text.append(f'value: [{", ".join(["/".join([str(w) for w in v[::-1]]) for v in value[3]])}]')
+        if value[0] in (5, 10):
+            text.append(f'value: [{", ".join(["-" * (sum([w<0 for w in v]) % 2) + "/".join([str(abs(w)) for w in v[::-1]]) for v in value[3]])}]')
         else:
             text.append(f'value: {value[3]}')
         return '\n'.join(text)
@@ -85,8 +101,8 @@ class tiff():
         """
         self.fh.seek(offset)
         nTags = struct.unpack(self.byteorder + self.tagnoformat, self.fh.read(struct.calcsize(self.tagnoformat)))[0]
-        self.nTags.append(nTags)
-        self.tags.append({})
+        self.nTags[idx] = nTags
+        self.tags[idx] = {}
         assert nTags < 4096, 'Too many tags'
 
         length = 8 if self.bigtiff else 2
@@ -115,7 +131,7 @@ class tiff():
                     value = self.fh.read(count)
                 elif ttype == 2:
                     value = self.fh.read(count).decode('ascii').rstrip('\x00')
-                elif ttype == 5:
+                elif ttype in (5, 10):
                     value = [struct.unpack(self.byteorder + dtype, self.fh.read(dtypelen)) for _ in range(count)]
                 else:
                     value = [struct.unpack(self.byteorder + dtype, self.fh.read(dtypelen))[0] for _ in range(count)]
@@ -124,7 +140,7 @@ class tiff():
                     self.fh.seek(cp)
             except Exception:
                 print(format_exc())
-            self.tags[-1][code] = (ttype, caddr, dtypelen*count, value)
+            self.tags[idx][code] = (ttype, caddr, dtypelen*count, value)
 
         self.fh.seek(offset + struct.calcsize(self.tagnoformat) + self.tagsize * nTags)
         nifd = struct.unpack(self.byteorder + self.offsetformat, self.fh.read(self.offsetsize))[0]

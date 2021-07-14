@@ -131,14 +131,14 @@ class Bar(PaintBox):
             self.drawText(qp, (0, value[0], 125, value[1]), ('_'.join(('{}',) * len(key))).format(*key).lower())
         qp.end()
 
-    def get_bar(self):
-        min_size = 10
-        scale = 100
+    def get_bar(self, scale=100, min_size=10, max_size=1000):
         bar = tiffread.assignments()
         pos = 0
         for item in self.tiff.addresses.get_assignments():
             key, value = item[0]
-            size = value[1] // scale if value[1] // scale >= min_size else min_size
+            size = value[1] // scale
+            if not (min_size <= size <= max_size):
+                size = min_size if size < min_size else max_size
             if not (key[0].lower() == 'empty' and value[1] == 1):
                 if key[0].lower() == 'empty':
                     bar[('empty', value[0] + value[1] // 2)] = (pos, size)
@@ -148,7 +148,6 @@ class Bar(PaintBox):
                     else:
                         bar[key] = (pos, size)
                 pos += size
-
         bar.max_addr = pos
         return bar
 
@@ -179,18 +178,21 @@ class Bar(PaintBox):
         if key[0].lower() == 'ifd':
             text.append(f'Number of tags: {self.tiff.nTags[key[1]]}\n')
             text.extend([self.tiff.fmt_tag(k, v)+'\n' for k, v in self.tiff.tags[key[1]].items()])
-            if key[1] < len(self.tiff.offsets) - 1:
+            if not isinstance(key[1], str):
                 text.append(f'Next ifd offset: {self.tiff.offsets[key[1] + 1]}')
         if key[0].lower() == 'tagdata':
             text.append('\n' + self.tiff.fmt_tag(key[2], self.tiff.tags[key[1]][key[2]]))
         if key[0].lower() == 'image':
-            im = self.tiff.asarray(key[1], key[2])
-            if im is not None:
-                text.append(f'\nStrip size: {im.shape}')
-                text.append(f'Data type: {im.dtype}')
-                text.append(f'Min, max: {im.min()}, {im.max()}')
-                text.append(f'Mean, std: {im.mean()}, {im.std()}')
-            self.parent.setImage(im)
+            try:
+                im = self.tiff.asarray(key[1], key[2])
+                if im is not None:
+                    text.append(f'\nStrip size: {im.shape}')
+                    text.append(f'Data type: {im.dtype}')
+                    text.append(f'Min, max: {im.min()}, {im.max()}')
+                    text.append(f'Mean, std: {im.mean()}, {im.std()}')
+                self.parent.setImage(im)
+            except Exception:
+                pass
         else:
             self.parent.setImage()
         self.parent.properties.setText('\n'.join(text))
@@ -227,7 +229,7 @@ class App(QtWidgets.QMainWindow, UiMainWindow):
 
     def openDialog(self):
         file, _ = QtWidgets.QFileDialog.getOpenFileName(self,
-                    "Open config file", "", "TIFF Files (*.tif *.tiff);;All Files (*)",
+                    "Open config file", "", "TIFF Files (*.tif *.tiff);;DNG files (*.dng);;All Files (*)",
                     options=(QtWidgets.QFileDialog.Options() | QtWidgets.QFileDialog.DontUseNativeDialog))
         self.open(file)
 
