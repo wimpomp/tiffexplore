@@ -89,10 +89,10 @@ class PaintBox(QtWidgets.QWidget):
 class Legend(PaintBox):
     def __init__(self, parent):
         self.parent = parent
-        self.color = {'header': 'red', 'ifd': 'cyan', 'tagdata': 'lightgreen', 'image': 'yellow', 'empty': 'white',
+        self.color = {'header': 'red', '(sub)ifd': 'cyan', 'tagdata': 'lightgreen', 'image': 'yellow', 'empty': 'white',
                       'shared tagdata': 'green', 'shared image': 'orange', 'unknown': 'gray'}
         super().__init__()
-        self.setFixedHeight(120)
+        self.setFixedHeight(15 * len(self.color))
         self.show()
 
     def paintEvent(self, *args, **kwargs):
@@ -107,8 +107,9 @@ class Legend(PaintBox):
 class Bar(PaintBox):
     def __init__(self, parent):
         self.parent = parent
-        self.color = {'header': 'red', 'ifd': 'cyan', 'tagdata': 'lightgreen', 'image': 'yellow', 'empty': 'white',
-                      'HEADER': 'red', 'IFD': 'blue', 'TAGDATA': 'green', 'IMAGE': 'orange', 'EMPTY': 'white'}
+        self.color = {'header': 'red', 'ifd': 'cyan', 'subifd': 'cyan', 'tagdata': 'lightgreen', 'image': 'yellow',
+                      'empty': 'white', 'HEADER': 'red', 'IFD': 'blue', 'SUBIFD': 'blue', 'TAGDATA': 'green',
+                      'IMAGE': 'orange', 'EMPTY': 'white'}
         self.tiff = None
         self.bar = tiffread.assignments()
         super().__init__()
@@ -128,7 +129,8 @@ class Bar(PaintBox):
         self.parent.verticalLayoutWidget.setFixedHeight(self.bar.max_addr)
         for key, value in self.bar.items():
             self.drawRectangle(qp, (0, value[0], 125, value[1]), self.color.get(key[0], "gray"))
-            self.drawText(qp, (0, value[0], 125, value[1]), ('_'.join(('{}',) * len(key))).format(*key).lower())
+            self.drawText(qp, (0, value[0], 125, value[1]),
+                          key[0].lower() + ('\n' if value[1] > 20 else ' ') + ' '.join([f'{k}' for k in key[1]]))
         qp.end()
 
     def get_bar(self, scale=100, min_size=10, max_size=1000):
@@ -141,7 +143,7 @@ class Bar(PaintBox):
                 size = min_size if size < min_size else max_size
             if not (key[0].lower() == 'empty' and value[1] == 1):
                 if key[0].lower() == 'empty':
-                    bar[('empty', value[0] + value[1] // 2)] = (pos, size)
+                    bar[('empty', (value[0] + value[1] // 2,))] = (pos, size)
                 else:
                     if len(item) > 1:
                         bar[(key[0].upper(),) + key[1:]] = (pos, size)
@@ -152,47 +154,43 @@ class Bar(PaintBox):
         return bar
 
     def mousePressEvent(self, event):
-        keys, vals = zip(*self.bar.get_assignment(event.localPos().y()))
-        key, val = keys[0], vals[0]
-        if key[0].lower() == 'empty':
-            addr = key[1]
+        ((code, key), *_), _ = zip(*self.bar.get_assignment(event.localPos().y()))
+        if code.lower() == 'empty':
+            addr = key[0]
         else:
-            addr = self.tiff.addresses[(key[0].lower(),) + key[1:]]
+            addr = self.tiff.addresses[(code.lower(), key)]
             addr = addr[0] + addr[1] // 2
-        keys, addrs = zip(*self.parent.tiff.addresses.get_assignment(addr))
-        addr = addrs[0]
+        keys, (addr, *_) = zip(*self.parent.tiff.addresses.get_assignment(addr))
 
-        text = [('_'.join(('{}',) * len(key))).format(*key) for key in keys]
+        text = [' '.join([f'{k}' for k in (c.lower(), *k)]) for c, *k in keys]
         text.append('')
         text.append(f'Adresses: {addr[0]} - {sum(addr)}')
         text.append(f'Length: {addr[1]}')
-        if key[0].lower() == 'header':
+        if code.lower() == 'header':
             text.append(f'\nFile size: {len(self.tiff)}')
+            text.append(f'Unused bytes in file: {self.tiff.get_empty()}')
             text.append(f'Byte order: {self.tiff.byteorder}')
             text.append(f'Big tiff: {self.tiff.bigtiff}')
             text.append(f'Tag size: {self.tiff.tagsize}')
             text.append(f'Tag number format: {self.tiff.tagnoformat}')
             text.append(f'Offset size: {self.tiff.offsetsize}')
             text.append(f'Offset format: {self.tiff.offsetformat}')
-            text.append(f'First ifd offset: {self.tiff.offsets[0]}')
-        if key[0].lower() == 'ifd':
-            text.append(f'Number of tags: {self.tiff.nTags[key[1]]}\n')
-            text.extend([self.tiff.fmt_tag(k, v)+'\n' for k, v in self.tiff.tags[key[1]].items()])
-            if not isinstance(key[1], str):
-                text.append(f'Next ifd offset: {self.tiff.offsets[key[1] + 1]}')
-        if key[0].lower() == 'tagdata':
-            text.append('\n' + self.tiff.fmt_tag(key[2], self.tiff.tags[key[1]][key[2]]))
-        if key[0].lower() == 'image':
-            try:
-                im = self.tiff.asarray(key[1], key[2])
-                if im is not None:
-                    text.append(f'\nStrip size: {im.shape}')
-                    text.append(f'Data type: {im.dtype}')
-                    text.append(f'Min, max: {im.min()}, {im.max()}')
-                    text.append(f'Mean, std: {im.mean()}, {im.std()}')
-                self.parent.setImage(im)
-            except Exception:
-                pass
+            text.append(f'First ifd offset: {self.tiff.offsets[(0,)]}')
+        if code.lower() in ('ifd', 'subifd'):
+            text.append(f'Number of tags: {self.tiff.nTags[key]}')
+            text.append(f'Unused bytes in ifd: {self.tiff.get_empty(key)}\n')
+            text.extend([self.tiff.fmt_tag(k, v) + '\n' for k, v in self.tiff.tags[key].items()])
+            text.append(f'Next ifd offset: {self.tiff.offsets.get(key[:-1] + (key[-1] + 1,))}')
+        if code.lower() == 'tagdata':
+            text.append('\n' + self.tiff.fmt_tag(key[-1], self.tiff.tags[key[:-1]][key[-1]]))
+        if code.lower() == 'image' and len(key) == 2:
+            im = self.tiff.asarray(key[0], key[1])
+            if im is not None:
+                text.append(f'\nStrip size: {im.shape}')
+                text.append(f'Data type: {im.dtype}')
+                text.append(f'Min, max: {im.min()}, {im.max()}')
+                text.append(f'Mean, std: {im.mean()}, {im.std()}')
+            self.parent.setImage(im)
         else:
             self.parent.setImage()
         self.parent.properties.setText('\n'.join(text))

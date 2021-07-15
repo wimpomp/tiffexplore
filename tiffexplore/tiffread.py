@@ -3,8 +3,6 @@ import tifffile
 import numpy as np
 from traceback import format_exc
 
-ifdcodes = {330: 'sub', 34665: 'exif', 34853: 'gps', 40965: 'inter'}
-
 class tiff():
     def __init__(self, file):
         self.file = file
@@ -16,34 +14,37 @@ class tiff():
         self.tags = {}
         self.get_file_len()
         self.addresses = assignments(len(self))
-        self.offsets = []
+        self.offsets = {}
         self.nTags = {}
         self.tagsread = set()
         try:
-            self.offsets = [self.read_header()]
-            idx = 0
-            while 0 < self.offsets[-1] < len(self):
-                self.offsets.append(self.read_ifd(self.offsets[-1], idx))
-                idx += 1
-            self.readtags()
+            self.read_ifd_offsets(self.read_header())
+            self.read_tags()
         except Exception:
             print(format_exc())
 
-    def readtags(self):
+    def read_ifd_offsets(self, offset, ifdtype=tuple()):
+        idx = 0
+        self.offsets[ifdtype + (idx,)] = offset
+        while 0 < self.offsets[ifdtype + (idx,)] < len(self):
+            self.offsets[ifdtype + (idx + 1,)] = self.read_ifd(ifdtype + (idx,))
+            idx += 1
+
+    def read_tags(self):
         while len(set(self.tags.keys()) - self.tagsread):
             for idx in set(self.tags.keys()) - self.tagsread:
                 tags = self.tags[idx]
                 if idx not in self.tagsread:
                     if 273 in tags and 279 in tags:
                         for i, a in enumerate(zip(tags[273][-1], tags[279][-1])):
-                            self.addresses[('image', idx, i)] = a
-                    for code, id in ifdcodes.items():
+                            self.addresses[('image', (*idx, i))] = a
+                    for code in (330, 400, 34665, 34853, 40965):
                         if code in tags:
                             if len(tags[code][3]) == 1:
-                                self.offsets.append(self.read_ifd(tags[code][3][0], f'{id}_{idx}'))
+                                self.read_ifd_offsets(tags[code][3][0], (*idx, code))
                             else:
                                 for i, offset in enumerate(tags[code][3]):
-                                    self.offsets.append(self.read_ifd(offset, f'{id}_{idx}_{i}'))
+                                    self.read_ifd_offsets(tags[code][3][0], (*idx, code, i))
                 self.tagsread.add(idx)
 
     @staticmethod
@@ -92,13 +93,14 @@ class tiff():
             self.offsetformat = 'I'
             self.offsetsize = 4
             self.offset = struct.unpack(self.byteorder + self.offsetformat, self.fh.read(self.offsetsize))[0]
-        self.addresses[('header',)] = (0, 4 + self.bigtiff * 4 + self.offsetsize)
+        self.addresses[('header', (0,))] = (0, 4 + self.bigtiff * 4 + self.offsetsize)
         return self.offset
 
-    def read_ifd(self, offset, idx):
+    def read_ifd(self, idx):
         """ Reads an IFD of the tiff file
             wp@tl20200214
         """
+        offset = self.offsets[idx]
         self.fh.seek(offset)
         nTags = struct.unpack(self.byteorder + self.tagnoformat, self.fh.read(struct.calcsize(self.tagnoformat)))[0]
         self.nTags[idx] = nTags
@@ -121,7 +123,7 @@ class tiff():
                 toolong = struct.calcsize(dtype) * count > self.offsetsize
                 if toolong:
                     caddr = struct.unpack(self.byteorder + self.offsetformat, self.fh.read(self.offsetsize))[0]
-                    self.addresses[('tagdata', idx, code)] = (caddr, dtypelen * count)
+                    self.addresses[('tagdata', (*idx, code))] = (caddr, dtypelen * count)
                     cp = self.fh.tell()
                     self.fh.seek(caddr)
                 else:
@@ -144,8 +146,21 @@ class tiff():
 
         self.fh.seek(offset + struct.calcsize(self.tagnoformat) + self.tagsize * nTags)
         nifd = struct.unpack(self.byteorder + self.offsetformat, self.fh.read(self.offsetsize))[0]
-        self.addresses[('ifd', idx)] = (offset, 2 * struct.calcsize(self.tagnoformat) + nTags * self.tagsize)
+        self.addresses[('sub' * (len(idx) > 1) + 'ifd', idx)] = (offset, 2 * struct.calcsize(self.tagnoformat)
+                                                                 + nTags * self.tagsize)
         return nifd
+
+    def get_empty(self, ifd=None):
+        empty = 0
+        if ifd is None:
+            for ((code, *key), value), *_ in self.addresses.get_assignments():
+                if code == 'empty':
+                    empty += value[-1]
+                elif code in ('ifd', 'subifd'):
+                    empty += self.get_empty(key[0])
+        else:
+            empty = sum([self.offsetsize - v[2] if v[2] < self.offsetsize else 0 for v in self.tags[ifd].values()])
+        return empty
 
     def __getitem__(self, item):
         if not isinstance(item, slice):
@@ -163,7 +178,7 @@ class tiff():
         self.tiff.close()
         self.close()
 
-    def close(self, *args, **kwargs):
+    def close(self):
         self.fh.close()
 
     def get_bytes(self, part):
