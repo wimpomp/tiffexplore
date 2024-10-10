@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "tiffexplore"
+version = "2024.10.0"
+description = "Explore a tiff structure."
+authors = ["Wim Pomp, <wimpomp@gmail.com>"]
+license = "GPL-3.0-or-later"
+readme = "README.md"
+packages = [{include = "tiffexplore"}]
+repository = "https://github.com/wimpomp/tiffexplore"
+
+[tool.poetry.scripts]
+tiffexplore = "tiffexplore:main"
+
+[tool.poetry.dependencies]
+python = "^3.7"
+tifffile = "*"
+PyQt5 = "*"
+
+[tool.pytest.ini_options]
+filterwarnings = ["ignore:::(?!tiffexplore)"]
+
+[tool.isort]
+line_length = 119
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

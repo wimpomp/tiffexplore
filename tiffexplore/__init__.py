@@ -220,7 +220,7 @@ class App(QtWidgets.QMainWindow, UiMainWindow):
             shape = im.shape
             im = QtGui.QImage(im, im.shape[1], im.shape[0], QtGui.QImage.Format_Grayscale8)
             f = min([a / b for a, b in zip((self.image.height(), self.image.width()), shape)])
-            pix = QtGui.QPixmap(im).scaled(f * shape[1], f * shape[0])
+            pix = QtGui.QPixmap(im).scaled(int(f) * shape[1], int(f) * shape[0])
         else:
             pix = QtGui.QPixmap()
         self.image.setPixmap(pix)

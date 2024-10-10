@@ -38,6 +38,9 @@ class tiff():
                     if 273 in tags and 279 in tags:
                         for i, a in enumerate(zip(tags[273][-1], tags[279][-1])):
                             self.addresses[('image', (*idx, i))] = a
+                    elif 324 in tags and 325 in tags:
+                        for i, a in enumerate(zip(tags[324][-1], tags[325][-1])):
+                            self.addresses[('image', (*idx, i))] = a
                     for code in (330, 400, 34665, 34853, 40965):
                         if code in tags:
                             if len(tags[code][3]) == 1:
